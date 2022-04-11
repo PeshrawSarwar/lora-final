@@ -100,7 +100,8 @@ void loop()
 {
   // Cayenne LPP example code from https://github.com/TheThingsNetwork/arduino-device-lib/blob/master/examples/CayenneLPP/CayenneLPP.ino
   // Cayenne LPP documentation from https://mydevices.com/cayenne/docs/lora/#lora-cayenne-low-power-payload
-  
+  String reading = getTemperatureForPrint();
+  debugSerial.println(reading);
   lpp.reset();
   lpp.addTemperature(1, getTemperature() );  
 
@@ -143,7 +144,7 @@ void loop()
     }
     // Delay between readings
     // 60 000 = 1 minute
-    delay(60000); 
+    delay(10000); 
 }
 
 float getTemperature()
@@ -152,4 +153,13 @@ float getTemperature()
   float mVolts = (float)analogRead(TEMP_SENSOR) * 3300.0 / 1023.0;
   float temp = (mVolts - 500.0) / 10.0;
   return (temp);
+}
+
+String getTemperatureForPrint()
+{
+  //10mV per C, 0C is 500mV
+  float mVolts = (float)analogRead(TEMP_SENSOR) * 3300.0 / 1023.0;
+  float temp = (mVolts - 500.0) / 10.0;
+
+  return String(temp)
 }
