@@ -1,14 +1,18 @@
 #include <Sodaq_RN2483.h>
+#include <CayenneLPP.h>
 
 #define debugSerial SerialUSB
 #define loraSerial Serial2
 
-#define NIBBLE_TO_HEX_CHAR(i) ((i <= 9) ? ('0' + i) : ('A' - 10 + i))
-#define HIGH_NIBBLE(i) ((i >> 4) & 0x0F)
-#define LOW_NIBBLE(i) (i & 0x0F)
+#define ADC_AREF 3.3f
+//#define BATVOLT_R1 2.0f // One v1
+//#define BATVOLT_R2 2.0f // One v1
+#define BATVOLT_R1 4.7f // One v2
+#define BATVOLT_R2 10.0f // One v2
+#define BATVOLT_PIN BAT_VOLT
 
-//Use OTAA, set to false to use ABP
 bool OTAA = false;
+CayenneLPP lpp(51); // the *maximum* payload size
 
 // ABP
 // USE YOUR OWN KEYS!
@@ -20,60 +24,39 @@ const uint8_t devAddr[4] =
 // USE YOUR OWN KEYS!
 const uint8_t appSKey[16] =
 {
-  0x20, 0x6D, 0x05, 0x26, 0xA8, 0x8A, 0xE9, 0x26, 0x11, 0x3E, 0x86, 0xFF, 0xBA, 0x05, 0x11, 0x56
+   0x20, 0x6D, 0x05, 0x26, 0xA8, 0x8A, 0xE9, 0x26, 0x11, 0x3E, 0x86, 0xFF, 0xBA, 0x05, 0x11, 0x56
 };
 
 // USE YOUR OWN KEYS!
 const uint8_t nwkSKey[16] =
 {
-  0x6E, 0x2C, 0xE9, 0x24, 0x17, 0x85, 0x14, 0x81, 0x24, 0x46, 0xA1, 0xAE, 0x43, 0x32, 0xDE, 0x4C
+   0x6E, 0x2C, 0xE9, 0x24, 0x17, 0x85, 0x14, 0x81, 0x24, 0x46, 0xA1, 0xAE, 0x43, 0x32, 0xDE, 0x4C
 };
 
 // OTAA
-// With using the GetHWEUI() function the HWEUI will be used
-static uint8_t DevEUI[8]
+const uint8_t DevEUI[8] =
 {
-    0x00, 0x04, 0xA3, 0x0B, 0x00, 0xE8, 0xC3, 0x9C
+  0x00, 0x04, 0xA3, 0x0B, 0x00, 0xE8, 0xAB, 0x04
 };
 
-
-const uint8_t AppEUI[8] =
+const uint8_t AppEUI[16] =
 {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 const uint8_t AppKey[16] =
 {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  0x9E, 0x71, 0x9B, 0x5F, 0x51, 0x8B, 0x0E, 0x2E, 0xDB, 0x4D, 0xA8, 0x5D, 0x49, 0x08, 0x2C, 0xB3
 };
 
 void setup()
 {
-  delay(1000);
-
   while ((!debugSerial) && (millis() < 10000)){
     // Wait 10 seconds for debugSerial to open
   }
 
-  debugSerial.println("Start");
-
-  // Start streams
   debugSerial.begin(57600);
   loraSerial.begin(LoRaBee.getDefaultBaudRate());
-
-  LoRaBee.setDiag(debugSerial); // to use debug remove //DEBUG inside library
-  LoRaBee.init(loraSerial, LORA_RESET);
-
-  //Use the Hardware EUI
-  getHWEUI();
-
-  // Print the Hardware EUI
-  debugSerial.print("LoRa HWEUI: ");
-  for (uint8_t i = 0; i < sizeof(DevEUI); i++) {
-      debugSerial.print((char)NIBBLE_TO_HEX_CHAR(HIGH_NIBBLE(DevEUI[i])));
-      debugSerial.print((char)NIBBLE_TO_HEX_CHAR(LOW_NIBBLE(DevEUI[i])));
-  }
-  debugSerial.println();  
 
   setupLoRa();
 }
@@ -86,15 +69,10 @@ void setupLoRa(){
     //OTAA
     setupLoRaOTAA();
   }
-  // Uncomment this line to for the RN2903 with the Actility Network
-  // For OTAA update the DEFAULT_FSB in the library
-  // LoRaBee.setFsbChannels(1);
-
-  LoRaBee.setSpreadingFactor(9);
 }
 
 void setupLoRaABP(){  
-  if (LoRaBee.initABP(loraSerial, devAddr, appSKey, nwkSKey, true))
+  if (LoRaBee.initABP(loraSerial, devAddr, appSKey, nwkSKey, false))
   {
     debugSerial.println("Communication to LoRaBEE successful.");
   }
@@ -106,7 +84,9 @@ void setupLoRaABP(){
 
 void setupLoRaOTAA(){
 
-  if (LoRaBee.initOTA(loraSerial, DevEUI, AppEUI, AppKey, true))
+  debugSerial.println(LoRaBee.initOTA(loraSerial, DevEUI, AppEUI, AppKey, false));
+
+  if (LoRaBee.initOTA(loraSerial, DevEUI, AppEUI, AppKey, false))
   {
     debugSerial.println("Network connection successful.");
   }
@@ -118,10 +98,14 @@ void setupLoRaOTAA(){
 
 void loop()
 {
-   String reading = getTemperature();
-   debugSerial.println(reading);
+  // Cayenne LPP example code from https://github.com/TheThingsNetwork/arduino-device-lib/blob/master/examples/CayenneLPP/CayenneLPP.ino
+  // Cayenne LPP documentation from https://mydevices.com/cayenne/docs/lora/#lora-cayenne-low-power-payload
+  String reading = getTemperatureForPrint();
+  debugSerial.println(reading);
+  lpp.reset();
+  lpp.addTemperature(1, getTemperature() );  
 
-    switch (LoRaBee.send(1, (uint8_t*)reading.c_str(), reading.length()))
+    switch (LoRaBee.send(1, (uint8_t*)lpp.getBuffer(), lpp.getSize()))
     {
     case NoError:
       debugSerial.println("Successful transmission.");
@@ -160,22 +144,22 @@ void loop()
     }
     // Delay between readings
     // 60 000 = 1 minute
-    delay(10000); 
+    delay(120000); 
 }
 
-String getTemperature()
+float getTemperature()
+{
+  //10mV per C, 0C is 500mV
+  float mVolts = (float)analogRead(TEMP_SENSOR) * 3300.0 / 1023.0;
+  float temp = (mVolts - 500.0) / 10.0;
+  return (temp);
+}
+
+String getTemperatureForPrint()
 {
   //10mV per C, 0C is 500mV
   float mVolts = (float)analogRead(TEMP_SENSOR) * 3300.0 / 1023.0;
   float temp = (mVolts - 500.0) / 10.0;
 
   return String(temp);
-}
-
-/**
-* Gets and stores the LoRa module's HWEUI/
-*/
-static void getHWEUI()
-{
-    uint8_t len = LoRaBee.getHWEUI(DevEUI, sizeof(DevEUI));
 }
